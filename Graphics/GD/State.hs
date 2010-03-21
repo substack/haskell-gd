@@ -1,53 +1,66 @@
 module Graphics.GD.State (
-    GD,
-    withImage, withNewImage, newImage,
-    saveJpegFile,saveJpegByteString,
-    savePngFile,savePngByteString,
-    saveGifFile,saveGifByteString,
-    getSize, getImage,
-    setPixel, eachPixel, setPixels,
-    rgb, rgba, channels
+    GD,channels,
+    withImage,withNewImage,newImage,
+    getSize,getImage,eachPixel,setPixels,
+    setPixel,copyRegion,copyRegionScaled,resize,rotate,fill,
+    drawFilledRectangle,drawFilledEllipse,drawLine,drawArc,
+    drawString,drawStringCircle,
+    module Graphics.GD
 ) where
 
 import qualified Graphics.GD as GD
 import Graphics.GD (
-        rgb,rgba,
+        Point,Color,Image,Size,
+        copyImage,rgb,rgba,
+        loadJpegFile,loadJpegData,loadJpegByteString,
+        loadPngFile,loadPngData,loadPngByteString,
+        loadGifFile,loadGifData,loadGifByteString,
         saveJpegFile,saveJpegByteString,
         savePngFile,savePngByteString,
         saveGifFile,saveGifByteString
     )
+import System.IO.Unsafe (unsafePerformIO)
 
 import Control.Monad.State.Lazy
 import Control.Applicative ((<$>))
-import Control.Monad (mapM_)
+import Control.Monad (mapM_,foldM_)
 import Control.Monad.Trans (lift,liftIO)
 
 data GDCmd
-    = CopyImage
-    | SetPixel GD.Point GD.Color
-    | ImageSize
+    = CopyRegion Point Size Image Point
+    | CopyRegionScaled Point Size Image Point Size
+    | Resize Int Int
+    | Rotate Int
+    | Fill Color
+    | DrawFilledRectangle Point Point Color
+    | DrawFilledEllipse Point Size Color
+    | DrawLine Point Point Color
+    | DrawArc Point Size Int Int Color
+    | SetPixel Point Color
+    | DrawString String Double Double Point String Color
+    | DrawStringCircle Point Double Double Double String Double String String Color
 
 data GDRet
     = GDZero
-    | GDSize GD.Size
+    | GDSize Size
 
 data GD'
     = GD' {
         gdCmds :: [GDCmd],
-        gdImage :: GD.Image,
-        gdSize :: GD.Size
+        gdImage :: Image,
+        gdSize :: Size
     }
 
 type GD a = State GD' a
 
-channels :: GD.Color -> (Int,Int,Int)
+channels :: Color -> (Int,Int,Int)
 channels c = (r,g,b) where
     b = c' `mod` 256
     g = (c' `div` 256) `mod` 256
     r = (c' `div` 256 `div` 256) `mod` 256
     c' = fromIntegral c
 
-newGD :: GD.Image -> IO GD'
+newGD :: Image -> IO GD'
 newGD im = do
     (w,h) <- GD.imageSize im
     return $ GD' {
@@ -56,44 +69,119 @@ newGD im = do
         gdSize = (w,h)
     }
 
-withImage :: GD.Image -> GD a -> IO a
+withImage :: Image -> GD a -> IO a
 withImage im f = do
     gd <- newGD =<< GD.copyImage im
-    let im' = gdImage gd
+    let
         (value,gd') = runState f gd
-    mapM_ (flip runCmd $ im') $ gdCmds gd'
+        g :: Image -> GDCmd -> IO Image
+        g im cmd = g' <$> runCmd cmd im where
+            g' mIm = case mIm of
+                Just im -> im
+                Nothing -> im
+    -- mapM_ (flip runCmd $ im') $ gdCmds gd'
+    foldM_ g (gdImage gd') $ gdCmds gd'
     return value
 
-withNewImage :: GD.Size -> GD a -> IO a
+withNewImage :: Size -> GD a -> IO a
 withNewImage size f = ($ f) <$> withImage =<< GD.newImage size
 
-newImage :: GD.Size -> GD () -> IO GD.Image
+newImage :: Size -> GD () -> IO Image
 newImage size f = withNewImage size (f >> getImage)
 
 consCmd :: GDCmd -> GD ()
 consCmd cmd = modify $ \gd -> gd { gdCmds = cmd : (gdCmds gd) }
 
-runCmd :: GDCmd -> GD.Image -> IO ()
-runCmd (SetPixel point color) = GD.setPixel point color
+runCmd :: GDCmd -> Image -> IO (Maybe Image)
 
-eachPixel :: (GD.Point -> GD.Color) -> GD ()
+runCmd (SetPixel pt c) = (>> return Nothing) . GD.setPixel pt c
+
+runCmd (CopyRegion pt1 size im pt2) = (>> return Nothing)
+    . GD.copyRegion pt1 size im pt2
+
+runCmd (CopyRegionScaled pt1 size1 im pt2 size2) = (>> return Nothing)
+    . GD.copyRegionScaled pt1 size1 im pt2 size2
+
+runCmd (Resize i j) = (Just <$>) . GD.resizeImage i j
+
+runCmd (Rotate i) = (Just <$>) . GD.rotateImage i
+
+runCmd (Fill c) = (>> return Nothing) . GD.fillImage c
+
+runCmd (DrawFilledRectangle pt1 pt2 c) = (>> return Nothing)
+    . GD.drawFilledRectangle pt1 pt2 c
+
+runCmd (DrawFilledEllipse pt size c) = (>> return Nothing)
+    . GD.drawFilledEllipse pt size c
+
+runCmd (DrawLine pt1 pt2 c) = (>> return Nothing)
+    . GD.drawLine pt1 pt2 c
+
+runCmd (DrawArc pt size i j c) = (>> return Nothing)
+    . GD.drawArc pt size i j c
+
+runCmd (DrawString s1 x y pt s2 c) = (>> return Nothing)
+    . GD.drawString s1 x y pt s2 c
+
+runCmd (DrawStringCircle pt x y z s1 w s2 s3 c) = (>> return Nothing)
+    . GD.drawStringCircle pt x y z s1 w s2 s3 c
+
+eachPixel :: (Point -> Color) -> GD ()
 eachPixel f = do
     (w,h) <- getSize
     mapM_ (\pt -> setPixel pt $ f pt)
         $ liftM2 (,) [0..w-1] [0..h-1]
 
-setPixels :: [GD.Color] -> GD ()
+setPixels :: [Color] -> GD ()
 setPixels pix = do
     (w,h) <- getSize
     mapM_ (\(c,pt) -> setPixel pt c)
         $ zip pix
         $ liftM2 (,) [0..w-1] [0..h-1]
 
-setPixel :: GD.Point -> GD.Color -> GD ()
-setPixel point color = consCmd $ SetPixel point color
+setPixel :: Point -> Color -> GD ()
+setPixel = (consCmd .) . SetPixel
 
-getImage :: GD GD.Image
+copyRegion :: Point -> Size -> Image -> Point -> GD ()
+copyRegion = (((consCmd .) .) .) . CopyRegion
+
+copyRegionScaled :: Point -> Size -> Image -> Point -> Size -> GD ()
+copyRegionScaled = ((((consCmd .) .) .) .) . CopyRegionScaled
+
+resize :: Int -> Int -> GD ()
+resize = (consCmd .) . Resize
+
+rotate :: Int -> GD ()
+rotate = consCmd . Rotate
+
+fill :: Color -> GD ()
+fill = consCmd . Fill
+
+drawFilledRectangle :: Point -> Point -> Color -> GD ()
+drawFilledRectangle = ((consCmd .) .) . DrawFilledRectangle
+
+drawFilledEllipse :: Point -> Size -> Color -> GD ()
+drawFilledEllipse = ((consCmd .) .) . DrawFilledEllipse
+
+drawLine :: Point -> Point -> Color -> GD ()
+drawLine = ((consCmd .) .) . DrawLine
+
+drawArc :: Point -> Size -> Int -> Int -> Color -> GD ()
+drawArc = ((((consCmd .) .) .) .) . DrawArc
+
+drawString :: String -> Double -> Double -> Point -> String -> Color -> GD ()
+drawString = (((((consCmd .) . ) .) .) .) . DrawString
+
+drawStringCircle :: Point -> Double -> Double -> Double -> String -> Double
+    -> String -> String -> Color -> GD ()
+drawStringCircle = ((((((((consCmd .) .) .) .) .) .) .) .) . DrawStringCircle
+
+getImage :: GD Image
 getImage = gdImage <$> get
 
-getSize :: GD GD.Size
+getSize :: GD Size
 getSize = gdSize <$> get
+
+measureString :: String -> Double -> Double -> Point -> String -> Color
+    -> (Point, Point, Point, Point)
+measureString = (((((unsafePerformIO .) .) .) .) .) . GD.measureString
