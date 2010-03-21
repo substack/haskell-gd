@@ -1,3 +1,9 @@
+{-
+    Graphics.GD.State
+    License: BSD3
+    Author: James Halliday
+-}
+
 module Graphics.GD.State (
     GD,channels,
     withImage,withNewImage,newImage,
@@ -79,8 +85,7 @@ withImage im f = do
             g' mIm = case mIm of
                 Just im -> im
                 Nothing -> im
-    -- mapM_ (flip runCmd $ im') $ gdCmds gd'
-    foldM_ g (gdImage gd') $ gdCmds gd'
+    foldM_ g (gdImage gd') $ reverse $ gdCmds gd'
     return value
 
 withNewImage :: Size -> GD a -> IO a
