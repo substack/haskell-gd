@@ -1,4 +1,5 @@
 module Graphics.GD.Monad (
+    withImage, setPixel
 ) where
 
 import qualified Graphics.GD as GD
@@ -13,18 +14,21 @@ data GDCommand
     | SetPixel GD.Point GD.Color
 
 type GDState a = State GD a
-type GDPut = GDState ()
+type GDUpdate = GDState ()
 
-withImage :: GD.Image -> GDState () -> IO GD.Image
+withImage :: GD.Image -> GDUpdate -> IO GD.Image
 withImage im f = do
     im' <- GD.copyImage im
     mapM_ (flip runCmd $ im') $ gdCommands $ execState f (GD [] im')
     return im'
 
-setPixel :: GD.Point -> GD.Color -> GDPut
+newImage :: GD.Size -> GDUpdate -> IO GD.Image
+newImage size f = ($ f) <$> withImage =<< GD.newImage size
+
+setPixel :: GD.Point -> GD.Color -> GDUpdate
 setPixel point color = consCmd $ SetPixel point color
 
-consCmd :: GDCommand -> GDPut
+consCmd :: GDCommand -> GDUpdate
 consCmd cmd = modify $ \gd -> gd { gdCommands = cmd : (gdCommands gd) }
 
 runCmd :: GDCommand -> GD.Image -> IO ()
