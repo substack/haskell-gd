@@ -1,5 +1,7 @@
+{-# LANGUAGE FlexibleInstances #-}
 module Graphics.GD.Monad (
-    GD, withImage, newImage,
+    GD,
+    withImage, withNewImage, newImage,
     setPixel, getSize,
     rgb, rgba
 ) where
@@ -10,18 +12,7 @@ import Graphics.GD (rgb,rgba)
 import Control.Monad.State.Lazy
 import Control.Applicative ((<$>))
 import Control.Monad (mapM_)
-
-data GD'
-    = GD' {
-        gdCmds :: [GDCmd],
-        gdImage :: GD.Image,
-        gdSize :: GD.Size
-    }
-
-newGD :: GD.Image -> IO GD'
-newGD im = do
-    size <- GD.imageSize im
-    return $ GD' [] im size
+import Control.Monad.Trans (lift,liftIO)
 
 data GDCmd
     = CopyImage
@@ -32,7 +23,19 @@ data GDRet
     = GDZero
     | GDSize GD.Size
 
+data GD'
+    = GD' {
+        gdCmds :: [GDCmd],
+        gdImage :: GD.Image,
+        gdSize :: GD.Size
+    }
+
 type GD a = State GD' a
+
+newGD :: GD.Image -> IO GD'
+newGD im = do
+    size <- GD.imageSize im
+    return $ GD' [] im size
 
 withImage :: GD.Image -> GD a -> IO a
 withImage im f = do
@@ -42,9 +45,11 @@ withImage im f = do
     mapM_ (flip runCmd $ im') $ gdCmds gd'
     return value
 
+withNewImage :: GD.Size -> GD a -> IO a
+withNewImage size f = ($ f) <$> withImage =<< GD.newImage size
+
 newImage :: GD.Size -> GD () -> IO GD.Image
-newImage size f = ($ f') <$> withImage =<< GD.newImage size
-    where f' = f >> getImage
+newImage size f = withNewImage size (f >> getImage)
 
 consCmd :: GDCmd -> GD ()
 consCmd cmd = modify $ \gd -> gd { gdCmds = cmd : (gdCmds gd) }
