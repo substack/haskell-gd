@@ -1,5 +1,6 @@
+-- | A more functional interface for Graphics.GD based on the State monad
+
 {-
-    Graphics.GD.State
     License: BSD3
     Author: James Halliday
 -}
@@ -10,7 +11,7 @@ module Graphics.GD.State (
     getSize,getImage,eachPixel,setPixels,
     setPixel,copyRegion,copyRegionScaled,resize,rotate,fill,
     drawFilledRectangle,drawFilledEllipse,drawLine,drawArc,
-    drawString,drawStringCircle,
+    drawString,drawStringCircle,measureString,
     module Graphics.GD
 ) where
 
@@ -28,7 +29,6 @@ import Graphics.GD (
 
 import Control.Monad.State.Lazy
 import Control.Applicative ((<$>))
-import Control.Monad (mapM_,foldM_)
 import System.IO.Unsafe (unsafePerformIO)
 
 data GDCmd
@@ -54,6 +54,8 @@ data GD'
 
 type GD a = State GD' a
 
+-- | Split a color into its red, green, and blue channels.
+-- | This is the inverse of rgb.
 channels :: Color -> (Int,Int,Int)
 channels c = (r,g,b) where
     b = c' `mod` 256
@@ -70,22 +72,25 @@ newGD im = do
         gdSize = (w,h)
     }
 
+-- | Perform actions in the GD monad on the image.
 withImage :: Image -> GD a -> IO a
 withImage im f = do
     gd <- newGD =<< GD.copyImage im
     let
         (value,gd') = runState f gd
         g :: Image -> GDCmd -> IO Image
-        g im cmd = g' <$> runCmd cmd im where
+        g im' cmd = g' <$> runCmd cmd im where
             g' mIm = case mIm of
-                Just im -> im
-                Nothing -> im
+                Just im'' -> im''
+                Nothing -> im'
     foldM_ g (gdImage gd') $ reverse $ gdCmds gd'
     return value
 
+-- | Perform actions on the newly created image in the GD monad.
 withNewImage :: Size -> GD a -> IO a
 withNewImage size f = ($ f) <$> withImage =<< GD.newImage size
 
+-- | Perform actions on the newly created image, returning the image.
 newImage :: Size -> GD () -> IO Image
 newImage size f = withNewImage size (f >> getImage)
 
@@ -126,12 +131,15 @@ runCmd (DrawString s1 x y pt s2 c) = (>> return Nothing)
 runCmd (DrawStringCircle pt x y z s1 w s2 s3 c) = (>> return Nothing)
     . GD.drawStringCircle pt x y z s1 w s2 s3 c
 
+-- | Set the color for each pixel in the image with a function.
+-- | TODO: pass existing color component to the update function.
 eachPixel :: (Point -> Color) -> GD ()
 eachPixel f = do
     (w,h) <- getSize
     mapM_ (\pt -> setPixel pt $ f pt)
         $ liftM2 (,) [0..w-1] [0..h-1]
 
+-- | Set all the pixel colors in the image directly.
 setPixels :: [Color] -> GD ()
 setPixels pix = do
     (w,h) <- getSize
@@ -139,21 +147,27 @@ setPixels pix = do
         $ zip pix
         $ liftM2 (,) [0..w-1] [0..h-1]
 
+-- | Set the pixel color at a point.
 setPixel :: Point -> Color -> GD ()
 setPixel = (consCmd .) . SetPixel
 
+-- | Copy another image region onto the active image.
 copyRegion :: Point -> Size -> Image -> Point -> GD ()
 copyRegion = (((consCmd .) .) .) . CopyRegion
 
+-- | Copy another image region onto the active image with scaling.
 copyRegionScaled :: Point -> Size -> Image -> Point -> Size -> GD ()
 copyRegionScaled = ((((consCmd .) .) .) .) . CopyRegionScaled
 
+-- | Resize the active image.
 resize :: Int -> Int -> GD ()
 resize = (consCmd .) . Resize
 
+-- | Rotate the active image.
 rotate :: Int -> GD ()
 rotate = consCmd . Rotate
 
+-- | Fill the active image with a color.
 fill :: Color -> GD ()
 fill = consCmd . Fill
 
@@ -176,9 +190,11 @@ drawStringCircle :: Point -> Double -> Double -> Double -> String -> Double
     -> String -> String -> Color -> GD ()
 drawStringCircle = ((((((((consCmd .) .) .) .) .) .) .) .) . DrawStringCircle
 
+-- | Get the active image.
 getImage :: GD Image
 getImage = gdImage <$> get
 
+-- | Get the active image size.
 getSize :: GD Size
 getSize = gdSize <$> get
 
