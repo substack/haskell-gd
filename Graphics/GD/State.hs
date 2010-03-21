@@ -1,12 +1,21 @@
 module Graphics.GD.State (
     GD,
     withImage, withNewImage, newImage,
-    setPixel, getSize,
-    rgb, rgba
+    saveJpegFile,saveJpegByteString,
+    savePngFile,savePngByteString,
+    saveGifFile,saveGifByteString,
+    getSize, getImage,
+    setPixel, eachPixel, setPixels,
+    rgb, rgba, channels
 ) where
 
 import qualified Graphics.GD as GD
-import Graphics.GD (rgb,rgba)
+import Graphics.GD (
+        rgb,rgba,
+        saveJpegFile,saveJpegByteString,
+        savePngFile,savePngByteString,
+        saveGifFile,saveGifByteString
+    )
 
 import Control.Monad.State.Lazy
 import Control.Applicative ((<$>))
@@ -31,10 +40,21 @@ data GD'
 
 type GD a = State GD' a
 
+channels :: GD.Color -> (Int,Int,Int)
+channels c = (r,g,b) where
+    b = c' `mod` 256
+    g = (c' `div` 256) `mod` 256
+    r = (c' `div` 256 `div` 256) `mod` 256
+    c' = fromIntegral c
+
 newGD :: GD.Image -> IO GD'
 newGD im = do
-    size <- GD.imageSize im
-    return $ GD' [] im size
+    (w,h) <- GD.imageSize im
+    return $ GD' {
+        gdCmds = [],
+        gdImage = im,
+        gdSize = (w,h)
+    }
 
 withImage :: GD.Image -> GD a -> IO a
 withImage im f = do
@@ -56,8 +76,18 @@ consCmd cmd = modify $ \gd -> gd { gdCmds = cmd : (gdCmds gd) }
 runCmd :: GDCmd -> GD.Image -> IO ()
 runCmd (SetPixel point color) = GD.setPixel point color
 
---mapGD :: (GD.Point -> GD.Color) -> GD ()
---mapGD f = mapM_ (\pt -> setPixel pt $ f pt) $ 
+eachPixel :: (GD.Point -> GD.Color) -> GD ()
+eachPixel f = do
+    (w,h) <- getSize
+    mapM_ (\pt -> setPixel pt $ f pt)
+        $ liftM2 (,) [0..w-1] [0..h-1]
+
+setPixels :: [GD.Color] -> GD ()
+setPixels pix = do
+    (w,h) <- getSize
+    mapM_ (\(c,pt) -> setPixel pt c)
+        $ zip pix
+        $ liftM2 (,) [0..w-1] [0..h-1]
 
 setPixel :: GD.Point -> GD.Color -> GD ()
 setPixel point color = consCmd $ SetPixel point color
