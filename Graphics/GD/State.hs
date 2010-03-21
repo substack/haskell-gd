@@ -25,12 +25,11 @@ import Graphics.GD (
         savePngFile,savePngByteString,
         saveGifFile,saveGifByteString
     )
-import System.IO.Unsafe (unsafePerformIO)
 
 import Control.Monad.State.Lazy
 import Control.Applicative ((<$>))
 import Control.Monad (mapM_,foldM_)
-import Control.Monad.Trans (lift,liftIO)
+import System.IO.Unsafe (unsafePerformIO)
 
 data GDCmd
     = CopyRegion Point Size Image Point
@@ -45,10 +44,6 @@ data GDCmd
     | SetPixel Point Color
     | DrawString String Double Double Point String Color
     | DrawStringCircle Point Double Double Double String Double String String Color
-
-data GDRet
-    = GDZero
-    | GDSize Size
 
 data GD'
     = GD' {
