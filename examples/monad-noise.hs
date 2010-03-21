@@ -1,4 +1,4 @@
-import Graphics.GD.Monad
+import Graphics.GD.State
 import Control.Monad (forM_,liftM2)
 import Control.Monad.Trans (liftIO)
 

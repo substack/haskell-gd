@@ -1,5 +1,4 @@
-{-# LANGUAGE FlexibleInstances #-}
-module Graphics.GD.Monad (
+module Graphics.GD.State (
     GD,
     withImage, withNewImage, newImage,
     setPixel, getSize,
